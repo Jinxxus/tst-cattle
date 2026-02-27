@@ -7,7 +7,7 @@ local VORPcore = nil
 
 AddEventHandler('onServerResourceStart', function(resource)
     if resource == 'vorp_core' or resource == GetCurrentResourceName() then
-        VORPcore = exports.vorp_core:GetVorp()
+        VORPcore = exports.vorp_core:GetCore()
     end
 end)
 

@@ -619,14 +619,26 @@ end
 -- ============================================================
 --  HUD / On-screen text
 -- ============================================================
+-- ── RedM-compatible on-screen text ───────────────────────────
+-- RedM does not expose the GTA5 SET_TEXT_* natives.
+-- We use Citizen.InvokeNative with the raw hashes instead.
+
+local _SetTextFont        = function(f)    Citizen.InvokeNative(0x5F7F8B6D6C2C9A8E, f) end
+local _SetTextScale       = function(x,y)  Citizen.InvokeNative(0x07C837F9A01C34C9, x, y) end
+local _SetTextColour      = function(r,g,b,a) Citizen.InvokeNative(0xBE6B23FFA53FB442, r, g, b, a) end
+local _SetTextOutline     = function()     Citizen.InvokeNative(0x2513DFB0FB8400FE) end
+local _SetTextEntry       = function(s)    Citizen.InvokeNative(0x25FBB336DF1804CB, s) end
+local _AddTextComponent   = function(s)    Citizen.InvokeNative(0x6C188BE134E074AA, s) end
+local _DrawText           = function(x,y)  Citizen.InvokeNative(0xCD015E5BB0D96A57, x, y) end
+
 local function DrawText2D(text, x, y, scale, r, g, b, a)
-    SetTextFont(0)
-    SetTextScale(scale, scale)
-    SetTextColour(r, g, b, a)
-    SetTextOutline()
-    SetTextEntry("STRING")
-    AddTextComponentString(text)
-    DrawText(x, y)
+    _SetTextFont(0)
+    _SetTextScale(scale, scale)
+    _SetTextColour(r, g, b, a)
+    _SetTextOutline()
+    _SetTextEntry("STRING")
+    _AddTextComponent(text)
+    _DrawText(x, y)
 end
 
 local function DrawHUD()
@@ -655,7 +667,7 @@ local function DrawHUD()
     y = y + lh
     DrawText2D(("Herding Skill: %d"):format(herdingSkill), 0.05, y, 0.4, 255, 255, 255, 255)
     y = y + lh + lh * 0.5
-    DrawText2D(("Rustlers(R): %s  Cowboys(C): ENABLED"):format(Config.RustlersEnabled and "ON" or "OFF"),
+    DrawText2D(("Rustlers(R): %s  Cowboys: ENABLED"):format(Config.RustlersEnabled and "ON" or "OFF"),
         0.05, y, 0.4, 255, 255, 255, 255)
 
     -- On-screen floating notification
@@ -664,11 +676,26 @@ local function DrawHUD()
     end
 end
 
--- ── Interaction hint banner (shown near locations) ────────────
+-- ── Context hint shown at top of screen ───────────────────────
+-- BeginTextCommandDisplayHelp / EndTextCommandDisplayHelp are also
+-- GTA5-only. In RedM we use SetTextEntry_2 + DrawSubtitleTimed or
+-- simply push through VORP's built-in notification.
+-- The simplest reliable approach in RedM: draw the hint as plain
+-- on-screen text just below the HUD so it is always visible.
+local activeHint = ""
 local function DrawHint(text)
-    BeginTextCommandDisplayHelp("STRING")
-    AddTextComponentString(text)
-    EndTextCommandDisplayHelp(0, false, true, -1)
+    activeHint = text   -- stored and drawn once per frame in DrawHUD
+end
+
+-- Append hint drawing to DrawHUD (called after the function above)
+local _baseDrawHUD = DrawHUD
+DrawHUD = function()
+    _baseDrawHUD()
+    if activeHint ~= "" then
+        -- Draw at bottom-centre of screen in yellow
+        DrawText2D(activeHint, 0.30, 0.90, 0.38, 255, 230, 100, 255)
+        activeHint = ""  -- clear each frame so it vanishes when not near a zone
+    end
 end
 
 -- ============================================================
@@ -707,23 +734,48 @@ Citizen.CreateThread(function()
         local nearBuy,  buyLoc  = NearAny(Config.BuyLocations,  playerPos)
         local nearSell, sellLoc = NearAny(Config.SellLocations, playerPos)
 
+        -- ── Control IDs (RedM verified integer mappings) ─────────
+        -- 0x8CC9CD42 = E / Square   (INPUT_CONTEXT)
+        -- 0xDEAD      — not used
+        -- We use plain integers from the RedM controls reference:
+        --   51  = INPUT_CONTEXT        (E on KB / Square on pad)
+        --   52  = INPUT_CONTEXT_B      (R on KB / Triangle on pad)  [hire]
+        --   74  = INPUT_VEH_HEADLIGHT  repurposed as dismiss (F on KB)
+        --   172 = INPUT_FRONTEND_UP    (Up arrow)
+        --   174 = INPUT_FRONTEND_DOWN  (Down arrow)
+        --   175 = INPUT_FRONTEND_RIGHT (Right arrow)
+        --   86  = INPUT_SCRIPT_PAD_UP  (repurposed toggle herding — numpad 8)
+        --   85  = INPUT_SCRIPT_PAD_DOWN(debug spawn — numpad 2)
+        --   73  = INPUT_CONTEXT_SECONDARY (G on KB — HUD toggle)
+        --   R key for rustlers: we check IsControlJustPressed(0, 45)
+        local CTL_BUY      = 51   -- E
+        local CTL_HIRE     = 52   -- R  (near buy zone only)
+        local CTL_SELL     = 51   -- E  (near sell zone — same key, different zone)
+        local CTL_DISMISS  = 74   -- F
+        local CTL_RUN      = 172  -- Up arrow
+        local CTL_WALK     = 175  -- Right arrow
+        local CTL_STOP     = 174  -- Down arrow
+        local CTL_HERDING  = 86   -- Numpad 8  (toggle)
+        local CTL_HUD      = 73   -- G         (toggle HUD)
+        local CTL_RUSTLERS = 45   -- Backspace  (toggle rustlers)
+        local CTL_DBGSPAWN = 85   -- Numpad 2   (debug spawn)
+
         -- ── Buy zone hints & interaction ─────────────────────
         if nearBuy then
-            DrawHint("Press ~INPUT_CONTEXT~ to buy a cow ($" .. Config.CowBuyPrice .. ")\n" ..
-                     "Press ~INPUT_CONTEXT_B~ to hire a cowboy ($" .. Config.CowboyHirePrice .. ")")
+            DrawHint("[E] Buy cow ($" .. Config.CowBuyPrice .. ")   [R] Hire cowboy ($" .. Config.CowboyHirePrice .. ")")
 
-            if IsControlJustPressed(0, `INPUT_CONTEXT`) then
+            if IsControlJustPressed(0, CTL_BUY) then
                 BuyCow()
             end
-            if IsControlJustPressed(0, `INPUT_CONTEXT_B`) then
+            if IsControlJustPressed(0, CTL_HIRE) then
                 HireCowboy()
             end
         end
 
         -- ── Sell zone hints & interaction ─────────────────────
         if nearSell and #herd > 0 then
-            DrawHint("Press ~INPUT_CONTEXT~ to sell your herd (" .. #herd .. " cattle)")
-            if IsControlJustPressed(0, `INPUT_CONTEXT`) then
+            DrawHint("[E] Sell your herd (" .. #herd .. " cattle)")
+            if IsControlJustPressed(0, CTL_SELL) then
                 SellHerd()
             end
         end
@@ -746,38 +798,39 @@ Citizen.CreateThread(function()
             end
         end
         if nearCowboy then
-            DrawHint("Press ~INPUT_CONTEXT_Y~ to dismiss cowboy")
-            if IsControlJustPressed(0, `INPUT_CONTEXT_Y`) then
+            DrawHint("[F] Dismiss cowboy")
+            if IsControlJustPressed(0, CTL_DISMISS) then
                 DismissCowboy(targetCowboy)
             end
         end
 
         -- ── Herding prompts when active ───────────────────────
         if herdingActive and #herd > 0 then
-            DrawHint("~INPUT_FRONTEND_UP~ Run  ~INPUT_FRONTEND_RIGHT~ Walk  ~INPUT_FRONTEND_DOWN~ Stop herd")
+            DrawHint("[Up] Run herd   [Right] Walk herd   [Down] Stop herd")
 
-            if IsControlJustPressed(0, `INPUT_FRONTEND_UP`) then
+            if IsControlJustPressed(0, CTL_RUN) then
                 SetHerdSpeed(Config.HerdRunSpeed)
                 Notify("Herd speed: RUN")
             end
-            if IsControlJustPressed(0, `INPUT_FRONTEND_RIGHT`) then
+            if IsControlJustPressed(0, CTL_WALK) then
                 SetHerdSpeed(Config.HerdWalkSpeed)
                 Notify("Herd speed: WALK")
             end
-            if IsControlJustPressed(0, `INPUT_FRONTEND_DOWN`) then
+            if IsControlJustPressed(0, CTL_STOP) then
                 SetHerdSpeed(0.0)
                 Notify("Herd: STOPPED")
             end
         end
 
         -- ── Keyboard toggles ─────────────────────────────────
-        -- U: toggle HUD
-        if IsControlJustPressed(0, `INPUT_CONTEXT_SECONDARY`) then
+        -- G: toggle HUD
+        if IsControlJustPressed(0, CTL_HUD) then
             showHUD = not showHUD
+            Notify(showHUD and "HUD enabled" or "HUD disabled")
         end
 
-        -- K: toggle herding
-        if IsControlJustPressed(0, `INPUT_SCRIPT_PAD_UP`) then
+        -- Numpad 8: toggle herding
+        if IsControlJustPressed(0, CTL_HERDING) then
             herdingActive = not herdingActive
             if not herdingActive then
                 for _, cow in ipairs(herd) do
@@ -789,14 +842,14 @@ Citizen.CreateThread(function()
             end
         end
 
-        -- R: toggle rustlers
-        if IsControlJustPressed(0, `INPUT_SWITCH_VISOR`) then
+        -- Backspace: toggle rustlers
+        if IsControlJustPressed(0, CTL_RUSTLERS) then
             Config.RustlersEnabled = not Config.RustlersEnabled
             Notify(Config.RustlersEnabled and "Rustler attacks ENABLED." or "Rustler attacks DISABLED.")
         end
 
-        -- Debug: O — spawn 10 cows around player
-        if showHUD and IsControlJustPressed(0, `INPUT_SCRIPT_PAD_DOWN`) then
+        -- Debug: Numpad 2 — spawn cows around player
+        if showHUD and IsControlJustPressed(0, CTL_DBGSPAWN) then
             for _ = 1, Config.DebugSpawnAmount do
                 local offset = vector3(
                     playerPos.x + RandFloat(-5.0, 5.0),

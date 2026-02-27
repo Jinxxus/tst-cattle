@@ -57,21 +57,21 @@ All tunable values live in one place. Key options:
 
 ## Controls
 
-> Controls use RedM's INPUT_ constants. You may remap them in `client/main.lua`.
+> All controls use raw RedM integer IDs to avoid the hash-literal `INPUT_*` resolution issues in RedM. You can remap them by editing the `CTL_*` locals near the top of the main loop in `client/main.lua`.
 
-| Action | Control |
-|--------|---------|
-| Toggle herding on/off | `INPUT_SCRIPT_PAD_UP` |
-| Toggle HUD | `INPUT_CONTEXT_SECONDARY` |
-| Toggle rustlers | `INPUT_SWITCH_VISOR` |
-| Run herd | `INPUT_FRONTEND_UP` |
-| Walk herd | `INPUT_FRONTEND_RIGHT` |
-| Stop herd | `INPUT_FRONTEND_DOWN` |
-| Buy cow (near buy zone) | `INPUT_CONTEXT` |
-| Hire cowboy (near buy zone) | `INPUT_CONTEXT_B` |
-| Sell herd (near sell zone) | `INPUT_CONTEXT` |
-| Dismiss cowboy (nearby/aimed at) | `INPUT_CONTEXT_Y` |
-| Debug spawn cows | `INPUT_SCRIPT_PAD_DOWN` (HUD must be on) |
+| Action | Default Key (KB) |
+|--------|-----------------|
+| Toggle herding on/off | Numpad 8 |
+| Toggle HUD | G |
+| Toggle rustlers | Backspace |
+| Run herd | Up Arrow |
+| Walk herd | Right Arrow |
+| Stop herd | Down Arrow |
+| Buy cow (near buy zone) | E |
+| Hire cowboy (near buy zone) | R |
+| Sell herd (near sell zone) | E |
+| Dismiss cowboy (nearby/aimed at) | F |
+| Debug spawn cows | Numpad 2 (HUD must be on) |
 
 ---
 
