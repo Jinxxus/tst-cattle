@@ -26,7 +26,7 @@ Converted and rewritten from an open-source RDR2 SHVDN C++ script.
 |-----------|-------|
 | [RedM](https://redm.gg) | Server platform |
 | [vorp_core](https://github.com/VORPCORE/vorp-core) | Economy, character, events |
-| [Uiprompt](https://github.com/kibook/uiprompt) | Uiprompts|
+| [Uiprompt](https://github.com/kibook/redm-uiprompt) | Uiprompts|
 
 ---
 
