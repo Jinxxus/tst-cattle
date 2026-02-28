@@ -146,7 +146,7 @@ end
 
 -- ── Economy ──────────────────────────────────────────────────
 local function BuyCow()
-    TriggerServerEvent('vorp_cattle_herding:deductMoney', Config.CowBuyPrice, 'buy_cow')
+    TriggerServerEvent('tst-cattle:deductMoney', Config.CowBuyPrice, 'buy_cow')
 end
 
 local function SellHerd()
@@ -172,7 +172,7 @@ local function SellHerd()
     stragglers = {}
     ClearCowBlips()
 
-    TriggerServerEvent('vorp_cattle_herding:addMoney', finalTotal, 'sell_herd')
+    TriggerServerEvent('tst-cattle:addMoney', finalTotal, 'sell_herd')
     ChangeReputation(1)
     if count > 10 then ImproveHerding(1) end
     Notify(("Sold %d cattle for $%d!"):format(count, finalTotal))
@@ -225,7 +225,7 @@ local function HireCowboy()
     if #cowboys >= Config.MaxCowboys then
         Notify("You already have the maximum number of cowboys!"); return
     end
-    TriggerServerEvent('vorp_cattle_herding:deductMoney', Config.CowboyHirePrice, 'hire_cowboy')
+    TriggerServerEvent('tst-cattle:deductMoney', Config.CowboyHirePrice, 'hire_cowboy')
 end
 
 local function DismissCowboy(targetPed)
@@ -296,7 +296,7 @@ local function HandleWages()
         end
     end
     if total > 0 then
-        TriggerServerEvent('vorp_cattle_herding:deductMoney', math.floor(total), 'wages')
+        TriggerServerEvent('tst-cattle:deductMoney', math.floor(total), 'wages')
     end
 end
 
@@ -475,8 +475,8 @@ end
 -- ============================================================
 --  Server → Client callbacks
 -- ============================================================
-RegisterNetEvent('vorp_cattle_herding:moneyResult')
-AddEventHandler('vorp_cattle_herding:moneyResult', function(success, reason)
+RegisterNetEvent('tst-cattle:moneyResult')
+AddEventHandler('tst-cattle:moneyResult', function(success, reason)
     if reason == 'buy_cow' then
         if success then
             local pos = GetEntityCoords(PlayerPedId())

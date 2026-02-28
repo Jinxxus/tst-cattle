@@ -1,4 +1,4 @@
-# vorp_cattle_herding
+# tst-cattle
 
 A full cattle herding job resource for **RedM** using the **VORP Core** framework.  
 Converted and rewritten from an open-source RDR2 SHVDN C++ script.
@@ -26,13 +26,14 @@ Converted and rewritten from an open-source RDR2 SHVDN C++ script.
 |-----------|-------|
 | [RedM](https://redm.gg) | Server platform |
 | [vorp_core](https://github.com/VORPCORE/vorp-core) | Economy, character, events |
+| [Uiprompt](https://github.com/kibook/uiprompt) | Uiprompts|
 
 ---
 
 ## Installation
 
-1. Drop the `vorp_cattle_herding` folder into your server's `resources/` directory.
-2. Add `ensure vorp_cattle_herding` to your `server.cfg` **after** `ensure vorp_core`.
+1. Drop the `tst-cattle` folder into your server's `resources/` directory.
+2. Add `ensure tst-cattle` to your `server.cfg` **after** `ensure vorp_core` and `ensure uiprompt`.
 3. Start / restart your server.
 
 ---
@@ -99,7 +100,7 @@ All tunable values live in one place. Key options:
 ## File Structure
 
 ```
-vorp_cattle_herding/
+tst-cattle
 ├── fxmanifest.lua
 ├── shared/
 │   └── config.lua       ← all config values
