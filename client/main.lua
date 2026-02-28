@@ -1,7 +1,5 @@
 -- ============================================================
 --  vorp_cattle_herding | client/main.lua
---  Cattle herding job for RedM / VORP
---  Uses kibook/redm-uiprompt for all player interactions
 -- ============================================================
 
 -- ── State ────────────────────────────────────────────────────
@@ -24,9 +22,16 @@ local lastUpdateTime   = 0
 local lastCowboyUpdate = 0
 local lastWageTime     = 0
 
+-- Whether the player has fully spawned in-world via VORP character select.
+-- Nothing runs until this is true so we don't interfere with the character
+-- selection screen.
+local playerReady = false
+
 -- ── Notify ───────────────────────────────────────────────────
+-- VORP Core's correct client notification event is vorp:TipRight.
+-- Signature: vorp:TipRight, message, duration_ms
 local function Notify(msg)
-    TriggerEvent('vorp:notify', msg, 'info', 4000)
+    TriggerEvent('vorp:TipRight', msg, 4000)
 end
 
 -- ── Distance ─────────────────────────────────────────────────
@@ -41,7 +46,7 @@ local function HerdCenter()
         if DoesEntityExist(cow) and not IsEntityDead(cow) then
             local p = GetEntityCoords(cow)
             cx = cx + p.x; cy = cy + p.y; cz = cz + p.z
-            n = n + 1
+            n  = n + 1
         end
     end
     if n > 0 then return vector3(cx/n, cy/n, cz/n) end
@@ -54,19 +59,27 @@ local function Norm2(x, y)
     return 0.0, 0.0
 end
 
-local function RandFloat(min, max)
-    return min + math.random() * (max - min)
+local function RandFloat(lo, hi)
+    return lo + math.random() * (hi - lo)
 end
 
 local function RandElem(t)
     return t[math.random(1, #t)]
 end
 
+-- ── Proximity ────────────────────────────────────────────────
+local function NearAny(locations, pos)
+    for _, loc in ipairs(locations) do
+        if Dist(pos, loc.coords) < loc.radius then return true end
+    end
+    return false
+end
+
 -- ── Progression ──────────────────────────────────────────────
 local function ChangeReputation(amt)
     ranchReputation = math.max(-100, math.min(100, ranchReputation + amt))
-    if amt > 0 then Notify("Your reputation as a rancher has improved.")
-    elseif amt < 0 then Notify("Your reputation has suffered.") end
+    if amt > 0 then      Notify("Your reputation as a rancher has improved.")
+    elseif amt < 0 then  Notify("Your reputation has suffered.") end
 end
 
 local function ImproveHerding(amt)
@@ -131,7 +144,7 @@ local function SpawnCow(pos)
     return cow
 end
 
--- ── Economy (server round-trips) ─────────────────────────────
+-- ── Economy ──────────────────────────────────────────────────
 local function BuyCow()
     TriggerServerEvent('vorp_cattle_herding:deductMoney', Config.CowBuyPrice, 'buy_cow')
 end
@@ -142,8 +155,11 @@ local function SellHerd()
     local count      = #herd
     local finalTotal = math.floor(Config.CowSellPrice * count * dailyMarket)
 
-    if dailyMarket > 1.0 then     Notify("Market is strong today — buyers pay more!")
-    elseif dailyMarket < 1.0 then Notify("Market is weak today — prices are down.") end
+    if dailyMarket > 1.0 then
+        Notify("Market is strong today — buyers pay more!")
+    elseif dailyMarket < 1.0 then
+        Notify("Market is weak today — prices are down.")
+    end
 
     if ranchReputation > 20      then finalTotal = math.floor(finalTotal * 1.1)
     elseif ranchReputation < -10 then finalTotal = math.floor(finalTotal * 0.9) end
@@ -163,7 +179,7 @@ local function SellHerd()
 end
 
 -- ============================================================
---  AI Cowboy System
+--  AI Cowboys
 -- ============================================================
 local function SpawnCowboy(pos)
     local horseModel = RandElem(Config.CowboyHorseModels)
@@ -198,7 +214,6 @@ local function SpawnCowboy(pos)
         horse   = horse,
         skill   = skill,
         wages   = 5.0 + (skill * 5.0),
-        hired   = GetGameTimer(),
         working = false,
         name    = RandElem(Config.CowboyNames),
     }
@@ -255,7 +270,7 @@ local function CleanupCowboys()
             table.remove(cowboys, i)
         end
     end
-
+    -- Refresh blips
     for _, b in ipairs(cowboyBlips) do
         if DoesBlipExist(b) then RemoveBlip(b) end
     end
@@ -314,6 +329,7 @@ local function UpdateCowboyAI()
         end
         cb.working = true
 
+        -- Find most stray cow
         local bestCow, bestScore, bestPos = nil, 0.0, nil
         for _, cow in ipairs(herd) do
             if DoesEntityExist(cow) and not IsEntityDead(cow) then
@@ -329,19 +345,17 @@ local function UpdateCowboyAI()
         if bestCow then
             local pdx, pdy = Norm2(center.x - bestPos.x, center.y - bestPos.y)
             local cbSpd    = herdSpeed > 1.5 and herdSpeed * 1.1 or math.max(herdSpeed, 0.5)
-
             if math.random(1, 100) <= math.floor(80 * (cb.skill / 5.0)) then
                 TaskFollowNavMeshToCoord(cb.ped,
-                    bestPos.x - pdx*12.0, bestPos.y - pdy*12.0, bestPos.z,
+                    bestPos.x - pdx * 12.0, bestPos.y - pdy * 12.0, bestPos.z,
                     cbSpd, -1, 3.0, 0, 0.0)
-
                 if Dist(cbPos, bestPos) < 20.0 then
                     local jx = pdx + RandFloat(-0.3, 0.3)
                     local jy = pdy + RandFloat(-0.3, 0.3)
                     local jl = math.sqrt(jx*jx + jy*jy)
                     if jl > 0 then jx = jx/jl; jy = jy/jl end
                     TaskFollowNavMeshToCoord(bestCow,
-                        bestPos.x + jx*15.0, bestPos.y + jy*15.0, bestPos.z,
+                        bestPos.x + jx * 15.0, bestPos.y + jy * 15.0, bestPos.z,
                         herdSpeed, -1, 1.0, 0, 0.0)
                 end
             end
@@ -365,20 +379,20 @@ local function TriggerRustlers()
     local playerPed = PlayerPedId()
     local playerPos = GetEntityCoords(playerPed)
 
-    local rustlerModel = `A_M_M_RANCHER_01`
-    local horseModel   = `A_C_HORSE_KENTUCKYSADDLE_BLACK`
-    RequestModel(rustlerModel); RequestModel(horseModel)
-    while not HasModelLoaded(rustlerModel) or not HasModelLoaded(horseModel) do Citizen.Wait(0) end
+    local rMdl = `A_M_M_RANCHER_01`
+    local hMdl = `A_C_HORSE_KENTUCKYSADDLE_BLACK`
+    RequestModel(rMdl); RequestModel(hMdl)
+    while not HasModelLoaded(rMdl) or not HasModelLoaded(hMdl) do Citizen.Wait(0) end
 
     for i = 0, Config.NumRustlers - 1 do
         local angle = i * (360.0 / Config.NumRustlers) * math.pi / 180.0
-        local dist  = RandFloat(180.0, 200.0)
-        local sx    = playerPos.x + math.cos(angle) * dist
-        local sy    = playerPos.y + math.sin(angle) * dist
+        local d     = RandFloat(180.0, 200.0)
+        local sx    = playerPos.x + math.cos(angle) * d
+        local sy    = playerPos.y + math.sin(angle) * d
         local gz    = GetGroundZFor_3dCoord(sx, sy, 1000.0, false) or playerPos.z
 
-        local horse   = CreatePed(horseModel,   sx, sy, gz, 0.0, true, true, true, true)
-        local rustler = CreatePed(rustlerModel, sx, sy, gz, 0.0, true, true, true, true)
+        local horse   = CreatePed(hMdl, sx, sy, gz, 0.0, true, true, true, true)
+        local rustler = CreatePed(rMdl, sx, sy, gz, 0.0, true, true, true, true)
         if DoesEntityExist(horse) and DoesEntityExist(rustler) then
             RemoveAllPedWeapons(rustler, true)
             GiveWeaponToPed(rustler,
@@ -390,12 +404,12 @@ local function TriggerRustlers()
             if math.random(1,2) == 1 then
                 TaskCombatPed(rustler, playerPed, 0, 16)
             elseif #herd > 0 then
-                TaskCombatPed(rustler, herd[math.random(1,#herd)], 0, 16)
+                TaskCombatPed(rustler, herd[math.random(1, #herd)], 0, 16)
             end
         end
     end
 
-    SetModelAsNoLongerNeeded(rustlerModel); SetModelAsNoLongerNeeded(horseModel)
+    SetModelAsNoLongerNeeded(rMdl); SetModelAsNoLongerNeeded(hMdl)
     Notify("Rustlers spotted! They're coming for you and your herd!")
 
     for _, cb in ipairs(cowboys) do
@@ -410,14 +424,17 @@ end
 
 -- ── Herd movement ────────────────────────────────────────────
 local function UpdateHerd()
-    local playerPed = PlayerPedId()
-    local playerPos = GetEntityCoords(playerPed)
-    local center    = HerdCenter()
-    local dx, dy    = Norm2(center.x - playerPos.x, center.y - playerPos.y)
+    local playerPed  = PlayerPedId()
+    local playerPos  = GetEntityCoords(playerPed)
+    local center     = HerdCenter()
+    local dx, dy     = Norm2(center.x - playerPos.x, center.y - playerPos.y)
     local herdTarget = vector3(center.x + dx*20.0, center.y + dy*20.0, center.z)
 
+    -- Clean dead from lists
     for i = #herd, 1, -1 do
-        if not DoesEntityExist(herd[i]) or IsEntityDead(herd[i]) then table.remove(herd, i) end
+        if not DoesEntityExist(herd[i]) or IsEntityDead(herd[i]) then
+            table.remove(herd, i)
+        end
     end
     for i = #stragglers, 1, -1 do
         if not DoesEntityExist(stragglers[i]) or IsEntityDead(stragglers[i]) then
@@ -432,10 +449,11 @@ local function UpdateHerd()
         if not DoesEntityExist(cow) then goto nextcow end
         local cowPos = GetEntityCoords(cow)
 
-        if isStraggler[cow] and math.random(1,100) <= 10 then
+        if isStraggler[cow] and math.random(1, 100) <= 10 then
             TaskFollowNavMeshToCoord(cow,
-                cowPos.x + RandFloat(-20,20), cowPos.y + RandFloat(-20,20), cowPos.z,
-                0.8, -1, 0.5, 0, 0.0)
+                cowPos.x + RandFloat(-20, 20),
+                cowPos.y + RandFloat(-20, 20),
+                cowPos.z, 0.8, -1, 0.5, 0, 0.0)
             goto nextcow
         end
 
@@ -454,7 +472,9 @@ local function UpdateHerd()
     end
 end
 
--- ── Server money callbacks ────────────────────────────────────
+-- ============================================================
+--  Server → Client callbacks
+-- ============================================================
 RegisterNetEvent('vorp_cattle_herding:moneyResult')
 AddEventHandler('vorp_cattle_herding:moneyResult', function(success, reason)
     if reason == 'buy_cow' then
@@ -472,10 +492,7 @@ AddEventHandler('vorp_cattle_herding:moneyResult', function(success, reason)
                 Notify("You already have the maximum number of cowboys!"); return
             end
             local pos = GetEntityCoords(PlayerPedId())
-            local cb  = SpawnCowboy(vector3(
-                pos.x + RandFloat(10,15),
-                pos.y + RandFloat(10,15),
-                pos.z))
+            local cb  = SpawnCowboy(vector3(pos.x + RandFloat(10,15), pos.y + RandFloat(10,15), pos.z))
             Notify(("Hired cowboy %s (Skill: %d/5)"):format(cb.name, cb.skill))
             ChangeReputation(1)
         else
@@ -485,7 +502,7 @@ AddEventHandler('vorp_cattle_herding:moneyResult', function(success, reason)
     elseif reason == 'wages' then
         if not success then
             for i = #cowboys, 1, -1 do
-                if math.random(1,100) <= 30 then
+                if math.random(1, 100) <= 30 then
                     local cb = cowboys[i]
                     Notify("Cowboy " .. cb.name .. " left due to unpaid wages!")
                     if DoesEntityExist(cb.ped)   then DeleteEntity(cb.ped)   end
@@ -498,96 +515,26 @@ AddEventHandler('vorp_cattle_herding:moneyResult', function(success, reason)
     end
 end)
 
--- ── Proximity helper ─────────────────────────────────────────
-local function NearAny(locations, pos)
-    for _, loc in ipairs(locations) do
-        if Dist(pos, loc.coords) < loc.radius then return true end
-    end
-    return false
-end
-
 -- ============================================================
---  UI Prompts  (kibook/redm-uiprompt)
---  Created once; enabled/disabled per-frame based on context.
--- ============================================================
-
--- Buy zone ────────────────────────────────────────────────────
-local buyGroup      = UipromptGroup:new("Ranch Store")
-local promptBuyCow  = Uiprompt:new(`INPUT_CONTEXT`,   "Buy Cow ($"     .. Config.CowBuyPrice     .. ")", buyGroup, false)
-local promptHireCow = Uiprompt:new(`INPUT_CONTEXT_B`, "Hire Cowboy ($" .. Config.CowboyHirePrice .. ")", buyGroup, false)
-promptBuyCow:setHoldMode(true)
-promptHireCow:setHoldMode(true)
-
--- Sell zone ───────────────────────────────────────────────────
-local sellGroup  = UipromptGroup:new("Cattle Market")
-local promptSell = Uiprompt:new(`INPUT_CONTEXT`, "Sell Herd", sellGroup, false)
-promptSell:setHoldMode(true)
-
--- Cowboy dismiss ──────────────────────────────────────────────
-local cowboyGroup   = UipromptGroup:new("Cowboy")
-local promptDismiss = Uiprompt:new(`INPUT_CONTEXT_Y`, "Dismiss Cowboy", cowboyGroup, false)
-promptDismiss:setHoldMode(true)
-
--- Herd speed ──────────────────────────────────────────────────
-local herdGroup  = UipromptGroup:new("Herd")
-local promptRun  = Uiprompt:new(`INPUT_FRONTEND_UP`,    "Run Herd",  herdGroup, false)
-local promptWalk = Uiprompt:new(`INPUT_FRONTEND_RIGHT`, "Walk Herd", herdGroup, false)
-local promptStop = Uiprompt:new(`INPUT_FRONTEND_DOWN`,  "Stop Herd", herdGroup, false)
-
--- Callbacks ───────────────────────────────────────────────────
-promptBuyCow:setOnHoldModeJustCompleted(function() BuyCow() end)
-
-promptHireCow:setOnHoldModeJustCompleted(function() HireCowboy() end)
-
-promptSell:setOnHoldModeJustCompleted(function() SellHerd() end)
-
-promptDismiss:setOnHoldModeJustCompleted(function()
-    local targetCowboy = nil
-    if IsPlayerFreeAiming(PlayerId()) then
-        local aimed = GetEntityPlayerIsFreeAimingAt(PlayerId())
-        for _, cb in ipairs(cowboys) do
-            if cb.ped == aimed then targetCowboy = cb.ped; break end
-        end
-    end
-    DismissCowboy(targetCowboy)
-end)
-
-promptRun:setOnHoldModeJustCompleted(function()
-    SetHerdSpeed(Config.HerdRunSpeed); Notify("Herd speed: RUN")
-end)
-
-promptWalk:setOnHoldModeJustCompleted(function()
-    SetHerdSpeed(Config.HerdWalkSpeed); Notify("Herd speed: WALK")
-end)
-
-promptStop:setOnHoldModeJustCompleted(function()
-    SetHerdSpeed(0.0); Notify("Herd: STOPPED")
-end)
-
--- Start the uiprompt automatic event thread
-UipromptManager:startEventThread()
-
--- ============================================================
---  HUD — drawn via raw native hashes (no GTA5 globals needed)
+--  HUD — raw native hashes (avoids missing GTA5 globals)
 -- ============================================================
 local function DrawLine(text, x, y, scale, r, g, b)
-    Citizen.InvokeNative(0x5F7F8B6D6C2C9A8E, 0)               -- SET_TEXT_FONT
-    Citizen.InvokeNative(0x07C837F9A01C34C9, scale, scale)    -- SET_TEXT_SCALE
-    Citizen.InvokeNative(0xBE6B23FFA53FB442, r, g, b, 255)    -- SET_TEXT_COLOUR
-    Citizen.InvokeNative(0x2513DFB0FB8400FE)                   -- SET_TEXT_OUTLINE
-    Citizen.InvokeNative(0x25FBB336DF1804CB, "STRING")         -- BEGIN_TEXT_COMMAND_DISPLAY_TEXT
-    Citizen.InvokeNative(0x6C188BE134E074AA, text)             -- ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME
-    Citizen.InvokeNative(0xCD015E5BB0D96A57, x, y)             -- END_TEXT_COMMAND_DISPLAY_TEXT
+    Citizen.InvokeNative(0x5F7F8B6D6C2C9A8E, 0)             -- SET_TEXT_FONT
+    Citizen.InvokeNative(0x07C837F9A01C34C9, scale, scale)  -- SET_TEXT_SCALE
+    Citizen.InvokeNative(0xBE6B23FFA53FB442, r, g, b, 255)  -- SET_TEXT_COLOUR
+    Citizen.InvokeNative(0x2513DFB0FB8400FE)                 -- SET_TEXT_OUTLINE
+    Citizen.InvokeNative(0x25FBB336DF1804CB, "STRING")       -- BEGIN_TEXT_COMMAND_DISPLAY_TEXT
+    Citizen.InvokeNative(0x6C188BE134E074AA, text)           -- ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME
+    Citizen.InvokeNative(0xCD015E5BB0D96A57, x, y)           -- END_TEXT_COMMAND_DISPLAY_TEXT
 end
 
 local function DrawHUD()
     if not showHUD then return end
-
     local y, lh = 0.05, 0.025
 
     DrawLine(("Herding [Numpad8]: %s"):format(herdingActive and "ACTIVE" or "INACTIVE"),
         0.05, y, 0.4, 255, 255, 255); y = y + lh
-    DrawLine(("Herd size: %d"):format(#herd),                  0.05, y, 0.4, 255, 255, 255); y = y + lh
+    DrawLine(("Herd size: %d"):format(#herd), 0.05, y, 0.4, 255, 255, 255); y = y + lh
     DrawLine(("Cowboys: %d/%d"):format(#cowboys, Config.MaxCowboys), 0.05, y, 0.4, 255, 255, 255); y = y + lh
 
     for i = 1, math.min(#cowboys, 3) do
@@ -599,55 +546,142 @@ local function DrawHUD()
     end
 
     y = y + lh * 0.5
-    DrawLine(("Reputation: %d"):format(ranchReputation),  0.05, y, 0.4, 255, 255, 255); y = y + lh
-    DrawLine(("Herding Skill: %d"):format(herdingSkill),  0.05, y, 0.4, 255, 255, 255); y = y + lh + lh*0.5
+    DrawLine(("Reputation: %d"):format(ranchReputation), 0.05, y, 0.4, 255, 255, 255); y = y + lh
+    DrawLine(("Herding Skill: %d"):format(herdingSkill),  0.05, y, 0.4, 255, 255, 255); y = y + lh + lh * 0.5
     DrawLine(("Rustlers [Backspace]: %s"):format(Config.RustlersEnabled and "ON" or "OFF"),
         0.05, y, 0.4, 255, 200, 100)
 end
 
 -- ============================================================
---  Main loop
+--  Prompts — created AFTER character spawns to avoid
+--  interfering with the VORP character selection screen.
+-- ============================================================
+local promptsReady  = false
+local buyGroup, promptBuyCow, promptHireCow
+local sellGroup, promptSell
+local cowboyGroup, promptDismiss
+local herdGroup, promptRun, promptWalk, promptStop
+
+local function CreatePrompts()
+    if promptsReady then return end
+    promptsReady = true
+
+    -- Buy zone
+    buyGroup      = UipromptGroup:new("Ranch Store")
+    promptBuyCow  = Uiprompt:new(`INPUT_CONTEXT`,   "Buy Cow ($"     .. Config.CowBuyPrice     .. ")", buyGroup,  false)
+    promptHireCow = Uiprompt:new(`INPUT_CONTEXT_B`, "Hire Cowboy ($" .. Config.CowboyHirePrice .. ")", buyGroup,  false)
+    promptBuyCow:setHoldMode(true)
+    promptHireCow:setHoldMode(true)
+
+    -- Sell zone
+    sellGroup  = UipromptGroup:new("Cattle Market")
+    promptSell = Uiprompt:new(`INPUT_CONTEXT`, "Sell Herd", sellGroup, false)
+    promptSell:setHoldMode(true)
+
+    -- Cowboy dismiss
+    cowboyGroup   = UipromptGroup:new("Cowboy")
+    promptDismiss = Uiprompt:new(`INPUT_CONTEXT_Y`, "Dismiss Cowboy", cowboyGroup, false)
+    promptDismiss:setHoldMode(true)
+
+    -- Herd speed
+    herdGroup  = UipromptGroup:new("Herd")
+    promptRun  = Uiprompt:new(`INPUT_FRONTEND_UP`,    "Run Herd",  herdGroup, false)
+    promptWalk = Uiprompt:new(`INPUT_FRONTEND_RIGHT`, "Walk Herd", herdGroup, false)
+    promptStop = Uiprompt:new(`INPUT_FRONTEND_DOWN`,  "Stop Herd", herdGroup, false)
+
+    -- Callbacks
+    promptBuyCow:setOnHoldModeJustCompleted(function()  BuyCow()    end)
+    promptHireCow:setOnHoldModeJustCompleted(function() HireCowboy() end)
+    promptSell:setOnHoldModeJustCompleted(function()    SellHerd()  end)
+
+    promptDismiss:setOnHoldModeJustCompleted(function()
+        local target = nil
+        if IsPlayerFreeAiming(PlayerId()) then
+            local aimed = GetEntityPlayerIsFreeAimingAt(PlayerId())
+            for _, cb in ipairs(cowboys) do
+                if cb.ped == aimed then target = cb.ped; break end
+            end
+        end
+        DismissCowboy(target)
+    end)
+
+    promptRun:setOnHoldModeJustCompleted(function()
+        SetHerdSpeed(Config.HerdRunSpeed); Notify("Herd speed: RUN")
+    end)
+    promptWalk:setOnHoldModeJustCompleted(function()
+        SetHerdSpeed(Config.HerdWalkSpeed); Notify("Herd speed: WALK")
+    end)
+    promptStop:setOnHoldModeJustCompleted(function()
+        SetHerdSpeed(0.0); Notify("Herd: STOPPED")
+    end)
+
+    -- Start the uiprompt event thread (only once, after prompts exist)
+    UipromptManager:startEventThread()
+end
+
+-- ============================================================
+--  Wait for VORP to confirm character is in the world.
+--  vorp:playerSpawned fires after character select completes.
+-- ============================================================
+AddEventHandler('vorp:playerSpawned', function()
+    playerReady = true
+
+    -- Small delay to let the world finish loading before we
+    -- create prompts or add map blips.
+    Citizen.SetTimeout(2000, function()
+        CreatePrompts()
+
+        -- Map blips (safe to add now that a character is active)
+        for _, loc in ipairs(Config.BuyLocations) do
+            local b = BlipAddForCoords(`BLIP_STYLE_CAMP`, loc.coords.x, loc.coords.y, loc.coords.z)
+            BlipAddModifier(b, `blip_ambient_herd`)
+            SetBlipName(b, "Buy Cattle")
+        end
+        for _, loc in ipairs(Config.SellLocations) do
+            local b = BlipAddForCoords(`BLIP_STYLE_CAMP`, loc.coords.x, loc.coords.y, loc.coords.z)
+            BlipAddModifier(b, `blip_ambient_herd`)
+            SetBlipName(b, "Sell Cattle")
+        end
+    end)
+end)
+
+-- ============================================================
+--  Main loop — only runs logic once playerReady is true
 -- ============================================================
 Citizen.CreateThread(function()
     math.randomseed(GetGameTimer())
 
-    -- Map blips
-    for _, loc in ipairs(Config.BuyLocations) do
-        local b = BlipAddForCoords(`BLIP_STYLE_CAMP`, loc.coords.x, loc.coords.y, loc.coords.z)
-        BlipAddModifier(b, `blip_ambient_herd`)
-        SetBlipName(b, "Buy Cattle")
-    end
-    for _, loc in ipairs(Config.SellLocations) do
-        local b = BlipAddForCoords(`BLIP_STYLE_CAMP`, loc.coords.x, loc.coords.y, loc.coords.z)
-        BlipAddModifier(b, `blip_ambient_herd`)
-        SetBlipName(b, "Sell Cattle")
-    end
+    -- Wait until the character is spawned before doing anything
+    while not playerReady do Citizen.Wait(500) end
+
+    -- Extra guard: wait until prompts are actually created
+    while not promptsReady do Citizen.Wait(100) end
 
     while true do
-        local now       = GetGameTimer()
-        local playerPed = PlayerPedId()
-        local playerPos = GetEntityCoords(playerPed)
+        local now        = GetGameTimer()
+        local playerPed  = PlayerPedId()
+        local playerPos  = GetEntityCoords(playerPed)
+        local hasCattle  = #herd > 0
 
         UpdateMarket()
 
-        -- Cowboy maintenance every 5 seconds
+        -- Cowboy maintenance every 5 s
         if now - lastCowboyUpdate > 5000 then
             CleanupCowboys()
             HandleWages()
             lastCowboyUpdate = now
         end
 
-        -- ── Proximity: show/hide prompt groups ───────────────
+        -- ── Proximity ──────────────────────────────────────────
         local nearBuy  = NearAny(Config.BuyLocations,  playerPos)
         local nearSell = NearAny(Config.SellLocations, playerPos)
-        local hasCattle = #herd > 0
 
-        -- Buy group
+        -- Buy prompts
         promptBuyCow:setEnabledAndVisible(nearBuy)
         promptHireCow:setEnabledAndVisible(nearBuy and #cowboys < Config.MaxCowboys)
         if nearBuy then buyGroup:setActiveThisFrame() end
 
-        -- Sell group
+        -- Sell prompt
         promptSell:setEnabledAndVisible(nearSell and hasCattle)
         if nearSell and hasCattle then
             promptSell:setText(("Sell Herd (%d cattle)"):format(#herd))
@@ -680,7 +714,8 @@ Citizen.CreateThread(function()
         promptStop:setEnabledAndVisible(showHerdPrompts)
         if showHerdPrompts then herdGroup:setActiveThisFrame() end
 
-        -- ── Toggle herding  (Numpad 8 = raw control 213) ─────
+        -- ── Keyboard toggles ───────────────────────────────────
+        -- Numpad 8 (213) — toggle herding
         if IsControlJustPressed(0, 213) then
             herdingActive = not herdingActive
             if not herdingActive then
@@ -693,19 +728,19 @@ Citizen.CreateThread(function()
             end
         end
 
-        -- Toggle HUD  (G = raw control 80)
+        -- G (80) — toggle HUD
         if IsControlJustPressed(0, 80) then
             showHUD = not showHUD
             Notify(showHUD and "HUD enabled" or "HUD disabled")
         end
 
-        -- Toggle rustlers  (Backspace = raw control 177)
+        -- Backspace (177) — toggle rustlers
         if IsControlJustPressed(0, 177) then
             Config.RustlersEnabled = not Config.RustlersEnabled
             Notify(Config.RustlersEnabled and "Rustler attacks ENABLED." or "Rustler attacks DISABLED.")
         end
 
-        -- Debug: spawn cows  (Numpad 2 = raw control 217, HUD must be on)
+        -- Numpad 2 (217) — debug spawn (HUD must be on)
         if showHUD and IsControlJustPressed(0, 217) then
             for _ = 1, Config.DebugSpawnAmount do
                 SpawnCow(vector3(
@@ -716,7 +751,7 @@ Citizen.CreateThread(function()
             Notify("Spawned " .. Config.DebugSpawnAmount .. " cows (debug)")
         end
 
-        -- ── Herd / cowboy AI ticks ────────────────────────────
+        -- ── Herd / cowboy AI ───────────────────────────────────
         if herdingActive and hasCattle then
             if now - lastUpdateTime > Config.UpdateInterval then
                 UpdateHerd()
@@ -726,7 +761,7 @@ Citizen.CreateThread(function()
 
             if now - lastEventTime > Config.EventCooldown * 1000 then
                 lastEventTime = now
-                if Config.RustlersEnabled and math.random(1,100) <= Config.EventChance then
+                if Config.RustlersEnabled and math.random(1, 100) <= Config.EventChance then
                     TriggerRustlers()
                 end
             end
@@ -751,7 +786,9 @@ AddEventHandler('onClientResourceStop', function(resource)
     for _, b in ipairs(cowboyBlips) do
         if DoesBlipExist(b) then RemoveBlip(b) end
     end
-    promptBuyCow:delete(); promptHireCow:delete()
-    promptSell:delete();   promptDismiss:delete()
-    promptRun:delete();    promptWalk:delete();    promptStop:delete()
+    if promptsReady then
+        promptBuyCow:delete(); promptHireCow:delete()
+        promptSell:delete();   promptDismiss:delete()
+        promptRun:delete();    promptWalk:delete();    promptStop:delete()
+    end
 end)

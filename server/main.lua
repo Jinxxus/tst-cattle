@@ -1,29 +1,38 @@
 -- ============================================================
 --  vorp_cattle_herding | server/main.lua
---  Handles all economy transactions through VORP Core
 -- ============================================================
 
 local VORPcore = nil
 
-AddEventHandler('onServerResourceStart', function(resource)
-    if resource == 'vorp_core' or resource == GetCurrentResourceName() then
+-- Grab the core reference as soon as possible.
+-- GetCore() is the correct export name (not GetVorp).
+CreateThread(function()
+    while VORPcore == nil do
         VORPcore = exports.vorp_core:GetCore()
+        Wait(100)
     end
 end)
 
--- ── Helper: get character money safely ───────────────────────
+-- ── Helper ───────────────────────────────────────────────────
+-- getCharacter returns the active character object or nil.
+-- NOTE: user.getCharacter is a METHOD — it must be called with ().
 local function getCharacter(source)
+    if not VORPcore then return nil end
     local user = VORPcore.getUser(source)
-    if user then return user.getCharacter end
-    return nil
+    if not user then return nil end
+    local character = user.getCharacter()   -- <-- () required
+    return character
 end
 
--- ── Event: Deduct money (buy cow / hire cowboy) ──────────────
+-- ── Deduct money ─────────────────────────────────────────────
 RegisterNetEvent('vorp_cattle_herding:deductMoney')
 AddEventHandler('vorp_cattle_herding:deductMoney', function(amount, reason)
-    local src = source
+    local src       = source
     local character = getCharacter(src)
-    if not character then return end
+    if not character then
+        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, false, reason)
+        return
+    end
 
     local balance = character.getMoney()
     if balance >= amount then
@@ -34,25 +43,13 @@ AddEventHandler('vorp_cattle_herding:deductMoney', function(amount, reason)
     end
 end)
 
--- ── Event: Add money (sell herd) ─────────────────────────────
+-- ── Add money ────────────────────────────────────────────────
 RegisterNetEvent('vorp_cattle_herding:addMoney')
 AddEventHandler('vorp_cattle_herding:addMoney', function(amount, reason)
-    local src = source
+    local src       = source
     local character = getCharacter(src)
     if not character then return end
 
     character.addMoney(amount)
     TriggerClientEvent('vorp_cattle_herding:moneyResult', src, true, reason)
-end)
-
--- ── Event: Check balance (optional pre-check) ─────────────────
-RegisterNetEvent('vorp_cattle_herding:checkBalance')
-AddEventHandler('vorp_cattle_herding:checkBalance', function()
-    local src = source
-    local character = getCharacter(src)
-    if not character then
-        TriggerClientEvent('vorp_cattle_herding:balanceResult', src, 0)
-        return
-    end
-    TriggerClientEvent('vorp_cattle_herding:balanceResult', src, character.getMoney())
 end)
