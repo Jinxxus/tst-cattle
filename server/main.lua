@@ -1,55 +1,44 @@
 -- ============================================================
---  vorp_cattle_herding | server/main.lua
+--  tst-cattle | server/main.lua
 -- ============================================================
 
-local VORPcore = nil
+local Core = nil
 
--- Grab the core reference as soon as possible.
--- GetCore() is the correct export name (not GetVorp).
-CreateThread(function()
-    while VORPcore == nil do
-        VORPcore = exports.vorp_core:GetCore()
-        Wait(100)
-    end
-end)
+-- VORP core is obtained via the "getCore" event on both client and server
+TriggerEvent("getCore", function(c) Core = c end)
 
 -- ── Helper ───────────────────────────────────────────────────
--- getCharacter returns the active character object or nil.
--- NOTE: user.getCharacter is a METHOD — it must be called with ().
 local function getCharacter(source)
-    if not VORPcore then return nil end
-    local user = VORPcore.getUser(source)
+    if not Core then return nil end
+    local user = Core.getUser(source)
     if not user then return nil end
-    local character = user.getCharacter()   -- <-- () required
-    return character
+    return user.getCharacter()   -- must be called as a function
 end
 
 -- ── Deduct money ─────────────────────────────────────────────
-RegisterNetEvent('vorp_cattle_herding:deductMoney')
-AddEventHandler('vorp_cattle_herding:deductMoney', function(amount, reason)
-    local src       = source
-    local character = getCharacter(src)
-    if not character then
-        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, false, reason)
+RegisterNetEvent('tst-cattle:deductMoney')
+AddEventHandler('tst-cattle:deductMoney', function(amount, reason)
+    local src  = source
+    local char = getCharacter(src)
+    if not char then
+        TriggerClientEvent('tst-cattle:moneyResult', src, false, reason)
         return
     end
-
-    local balance = character.getMoney()
+    local balance = char.getMoney()
     if balance >= amount then
-        character.removeMoney(amount)
-        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, true, reason)
+        char.removeMoney(amount)
+        TriggerClientEvent('tst-cattle:moneyResult', src, true, reason)
     else
-        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, false, reason)
+        TriggerClientEvent('tst-cattle:moneyResult', src, false, reason)
     end
 end)
 
 -- ── Add money ────────────────────────────────────────────────
-RegisterNetEvent('vorp_cattle_herding:addMoney')
-AddEventHandler('vorp_cattle_herding:addMoney', function(amount, reason)
-    local src       = source
-    local character = getCharacter(src)
-    if not character then return end
-
-    character.addMoney(amount)
-    TriggerClientEvent('vorp_cattle_herding:moneyResult', src, true, reason)
+RegisterNetEvent('tst-cattle:addMoney')
+AddEventHandler('tst-cattle:addMoney', function(amount, reason)
+    local src  = source
+    local char = getCharacter(src)
+    if not char then return end
+    char.addMoney(amount)
+    TriggerClientEvent('tst-cattle:moneyResult', src, true, reason)
 end)
