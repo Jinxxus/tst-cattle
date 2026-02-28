@@ -1,19 +1,26 @@
 fx_version 'cerulean'
 game 'rdr3'
+
 rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aware my resources *will* become incompatible once RedM ships.'
 
-name        'tst-cattle'
-description 'Cattle herding job for RedM with VORP framework'
-version     '1.2.0'
+name        'cattle_herding'
+description 'Cattle Herding System - VORP Framework'
+version     '1.0.0'
+author      'Converted from SHVDN script.cpp'
 
--- uiprompt must be started before tst-cattle in server.cfg
+shared_scripts {
+    -- Add any shared config here if needed
+}
+
 client_scripts {
-    '@uiprompt/uiprompt.lua',
-    'shared/config.lua',
-    'client/main.lua',
+    'client.lua',
 }
 
 server_scripts {
-    'shared/config.lua',
-    'server/main.lua',
+    'server.lua',
+}
+
+dependencies {
+    'vorp_core',
+    'uiprompt',  -- kibook/uiprompt
 }
