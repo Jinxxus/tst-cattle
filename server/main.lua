@@ -1,5 +1,5 @@
 -- ============================================================
---  tst-cattle | server/main.lua
+--  vorp_cattle_herding | server/main.lua
 -- ============================================================
 
 local VORPcore = nil
@@ -25,31 +25,31 @@ local function getCharacter(source)
 end
 
 -- ── Deduct money ─────────────────────────────────────────────
-RegisterNetEvent('tst-cattle:deductMoney')
-AddEventHandler('tst-cattle:deductMoney', function(amount, reason)
+RegisterNetEvent('vorp_cattle_herding:deductMoney')
+AddEventHandler('vorp_cattle_herding:deductMoney', function(amount, reason)
     local src       = source
     local character = getCharacter(src)
     if not character then
-        TriggerClientEvent('tst-cattle:moneyResult', src, false, reason)
+        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, false, reason)
         return
     end
 
     local balance = character.getMoney()
     if balance >= amount then
         character.removeMoney(amount)
-        TriggerClientEvent('tst-cattle:moneyResult', src, true, reason)
+        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, true, reason)
     else
-        TriggerClientEvent('tst-cattle:moneyResult', src, false, reason)
+        TriggerClientEvent('vorp_cattle_herding:moneyResult', src, false, reason)
     end
 end)
 
 -- ── Add money ────────────────────────────────────────────────
-RegisterNetEvent('tst-cattle:addMoney')
-AddEventHandler('tst-cattle:addMoney', function(amount, reason)
+RegisterNetEvent('vorp_cattle_herding:addMoney')
+AddEventHandler('vorp_cattle_herding:addMoney', function(amount, reason)
     local src       = source
     local character = getCharacter(src)
     if not character then return end
 
     character.addMoney(amount)
-    TriggerClientEvent('tst-cattle:moneyResult', src, true, reason)
+    TriggerClientEvent('vorp_cattle_herding:moneyResult', src, true, reason)
 end)
